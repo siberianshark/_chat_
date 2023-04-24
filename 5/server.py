@@ -4,9 +4,7 @@ import sys
 import log.server_log_config
 import logging
 
-
 SERVER_LOGGER = logging.getLogger('server')
-
 
 def send_message(sock, message):
     encoded_message = json.dumps(message).encode('utf-8')

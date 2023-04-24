@@ -6,7 +6,6 @@ from lesson_3 import client, server
 
 EOM = server.EOM
 
-
 class TestServerModule(unittest.TestCase):
     # def tearDown(self) -> None:
     #     self.test_read_message_OK.close()

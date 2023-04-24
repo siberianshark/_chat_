@@ -2,7 +2,6 @@ import logging
 import os
 from logging import handlers
 
-
 log_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log')
 if not os.path.exists(log_directory):
     os.makedirs(log_directory)
