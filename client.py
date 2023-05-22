@@ -1,78 +1,63 @@
-import argparse
-import json
-import subprocess
-import time
-from socket import socket, AF_INET, SOCK_STREAM
+import socket
+import threading	
+import dis
 
+PEER_IP = '127.0.0.1'	
+PEER_PORT = 7777	
+
+class ClientVerifier(type):
+    def __init__(cls, name, bases, attrs):
+        cls._verify_sockets(attrs)
+        super().__init__(name, bases, attrs)
+        	
+    @staticmethod
+    def _verify_sockets(attrs):
+        for attr_name, attr_value in attrs.items():
+            if isinstance(attr_value, socket.socket):
+                raise TypeError(
+                    f"Socket creation not allowed in class attribute '{attr_name}'")
+
+            if callable(attr_value):
+                bytecode = dis.Bytecode(attr_value)
+                for instruction in bytecode:
+                    if instruction.opname in ("CALL_FUNCTION", "CALL_METHOD") and isinstance(instruction.argval, socket.socket):
+                        raise TypeError(
+                            f"Socket method calls not allowed in function '{attr_name}'")
 
 class Client:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self._socket = None
 
-    def __init__(self, host: str, port: int, client_type: str = 'write'):
-        self._BLOCK_LEN: int = 1024
-        self._EOM: bytes = b'ENDOFMESSAGE___'
-        self._host: str = host
-        self._port: int = port
-        self._client_type: bool = False if client_type == 'read' else True
-        self.user_name: str = ''
+    def connect(self):
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._socket.connect((self.host, self.port))
 
-    @staticmethod
-    def parse_cli_arguments() -> tuple(str, int):
-        parser = argparse.ArgumentParser(description='Эхо-клиент')
-        parser.add_argument('--host', type=str, default='localhost')
-        parser.add_argument('--port', type=int, default=9999)
-        parser.add_argument('--type', type=str, default=True)
-        return parser.parse_args()
+    def send(self, data):
+        if not self._socket:
+            raise RuntimeError(
+                "Socket is not connected. Call connect() method first.")
 
-    def get_client_name(self) -> None:
-        if self._client_type:
-            print('Введите Ваш ник_нейм')
-            self.user_name = input('Ник? >: ')
-            print()
+        self._socket.sendall(data.encode())
 
-    def start_chat_process(self) -> None:
-        if self._client_type:
-            subprocess.Popen('python3 client.py --type=read', shell=True)
+    def receive(self, buffer_size=1024):
+        if not self._socket:
+            raise RuntimeError(
+                "Socket is not connected. Call connect() method first.")
 
-    def get_message(self, get_socket: socket) -> None:
-        server_message = get_socket.recv(self._BLOCK_LEN)
-        messages = self.parse_server_messages(server_message)
-        self.printing_messages(messages)
+        data = self._socket.recv(buffer_size)
+        return data.decode()
 
-    def send_message(self, send_socket: socket, message: str) -> None:
-        client_data = {'user_name': self.user_name, 'message': message}
-        encoded_data = json.dumps(client_data).encode('utf-8')
-        send_socket.send(encoded_data + self._EOM)
+    def close(self):
+        if self._socket:
+            self._socket.close()
+            self._socket = None
 
-    def parse_server_messages(self, server_message: bytes) -> list:
-        messages = server_message.split(self._EOM)[:-1]
-        return messages
-
-    def printing_messages(self, messages: list) -> None:
-        for message in messages:
-            message = json.loads(message.decode('utf-8'))
-            print(f"{message['user_name']}: {message['message']}")
-
-    def start(self) -> None:
-
-        with socket(AF_INET, SOCK_STREAM) as s:
-            s.connect((self._host, self._port))
-
-            self.get_client_name()
-            self.start_chat_process()
-
-            while True:
-                if self._client_type:
-                    message = input('>: ')
-                    if message == '/exit':
-                        break
-
-                    self.send_message(s, message)
-                    continue
-
-                self.get_message(s)
-
-
-if __name__ == '__main__':
-    args = Client.parse_cli_arguments()
-    client = Client(host=args.host, port=args.port, client_type=args.type)
-    client.start()
+def main():
+    client = Client(PEER_IP, PEER_PORT)
+    client.connect()
+    client.send("Hello, server!")
+    response = client.receive()
+    print(response)
+    client.close()

@@ -1,80 +1,95 @@
-import argparse
-from select import select
-from socket import socket, AF_INET, SOCK_STREAM
+import dis
+import socket	
+import threading	
 
 
-class Server:
+HOST = '0.0.0.0'	
+PORT = 7777
+clients = []
 
-    def __init__(self, host, port):
-        self._BLOCK_LEN: int = 1024
-        self._host: str = host
-        self._port: int = port
-        self._connections: list = []
+class PortDescriptor:
+    def __init__(self, default_port=7777):
+        self._default_port = default_port
+        self._value = None
 
+
+    def __get__(self, instance, owner):
+        if self._value is None:
+            return self._default_port
+        return self._value
+    def __set__(self, instance, value):
+        if not isinstance(value, int):
+            raise TypeError("Port number must be an integer.")
+        if value < 0:
+            raise ValueError(
+                "Port number must be greater than or equal to zero.")
+        self._value = value
+class ServerVerifier(type):
+    def __init__(cls, name, bases, attrs):
+        cls._verify_sockets(attrs)
+        super().__init__(name, bases, attrs)
 
     @staticmethod
-    def parse_server_arguments() -> tuple(str, int):
-        arguments = argparse.ArgumentParser(description='Server host ip-address and port')
-        arguments.add_argument('--host', type=str, default='localhost')
-        arguments.add_argument('--port', type=int, default=9999)
-        return arguments.parse_args()
+    def _verify_sockets(attrs):
+        for attr_name, attr_value in attrs.items():
+            if callable(attr_value):
+                bytecode = dis.Bytecode(attr_value)
+                for instruction in bytecode:
+                    if instruction.opname == "CALL_METHOD" and isinstance(instruction.argval, socket.socket) and instruction.argval.type != socket.SOCK_STREAM:
+                        raise TypeError(
+                            f"Socket method calls not allowed in function '{attr_name}'")
+                    if instruction.opname == "LOAD_METHOD" and instruction.argval == "connect":
+                        raise TypeError(
+                            f"Socket 'connect' method calls not allowed in function '{attr_name}'")
 
-    def read_requests(self, read_for: list) -> dict:
-        responses = {}
-
-        for read_socket in read_for:
-            try:
-                request = read_socket.recv(self._BLOCK_LEN)
-                responses[read_socket] = request
-            except ConnectionResetError:
-                print(f'Client is shutdown {read_socket}')
-                self._connections.remove(read_socket)
-        return responses
-
-    def write_response(self, write_list: list, requests: dict):
-        for write_socket in write_list:
-            if write_socket in requests:
-                try:
-                    response = requests[write_socket]
-                    for connection in self._connections:
-                        connection.send(response)
-                except BrokenPipeError:
-                    print(f'Client is shutdown {write_socket}')
-                    write_socket.close()
-                    self._connections.remove(write_socket)
+class Server(metaclass=ServerVerifier):
+    port = PortDescriptor()
+    
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self._socket = None
 
     def start(self):
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._socket.bind((self.host, self.port))
+        self._socket.listen(1)
 
-        with socket(AF_INET, SOCK_STREAM) as server_socket:
-            server_socket.bind((self._host, self._port))
-            server_socket.listen(5)
-            server_socket.settimeout(0.2)
-            print('Server is started!')
+        while True:
+            client_socket, client_address = self._socket.accept()
+            self.handle_client(client_socket, client_address)
 
-            while True:
+    def handle_client(self, client_socket, client_address):
+        while True:
+            try:
+                data = client_socket.recv(1024)
 
-                try:
-                    connection, address = server_socket.accept()
-                except OSError:
-                    pass
-                else:
-                    print(f'Connection accepted from {address}')
-                    self._connections.append(connection)
-                finally:
+                if not data:
+                    clients.remove(client_socket)
+                    client_socket.close()
+                    print(
+                        f"Connection with {client_address}  has been refused")
+                    break
 
-                    timeout = 10
+                for c in clients:
+                    if c != client_socket:
+                        c.send(data)
+            except:
+                clients.remove(client_socket)	                
+                client_socket.close()	                
+                print(f"Connection with {client_address} has been refused")
+                break	               
 
-                    try:
-                        read_list, write_list, errors = select(self._connections, self._connections, [], timeout)
-                    except OSError:
-                        pass
+    def close(self):
+        if self._socket:
+            self._socket.close()
+            self._socket = None
+class MyServer(Server):
+    def handle_client(self, client_socket, client_address):
+        data = client_socket.recv(1024)
+        response = "Received: " + data.decode()
+        client_socket.sendall(response.encode())
+        client_socket.close()
 
-                    requests = self.read_requests(read_list)
-                    if requests:
-                        self.write_response(write_list, requests)
-
-
-if __name__ == '__main__':
-    args = Server.parse_server_arguments()
-    server = Server(args.host, args.port)
-    server.start()
+my_server = MyServer(HOST, PORT)
+my_server.start()
