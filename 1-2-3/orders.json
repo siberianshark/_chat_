@@ -1,0 +1,19 @@
+{ 
+    
+"orders": [
+{
+    "item": "mcbook",
+    "quantity": 2,
+    "price": 2400,
+    "buyer": "John",
+    "date": "2023-04-07"
+}
+,
+{
+    "item": "iphone",
+    "quantity": 1,
+    "price": 1500,
+    "buyer": "Kate",
+    "date": "2023-04-07"
+}
+]}
