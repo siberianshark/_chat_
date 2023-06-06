@@ -2,17 +2,15 @@ import socket
 import threading
 import dis
 import sqlite3
-
+import sys
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QListWidget, QTextEdit, QLineEdit, QPushButton
 
 PEER_IP = '127.0.0.1'
 PEER_PORT = 7777
-
-
 class ClientDatabase:
     def __init__(self, db_file):
         self.connection = sqlite3.connect(db_file)
         self.cursor = self.connection.cursor()
-
     def create_tables(self):
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS contacts (
@@ -30,25 +28,21 @@ class ClientDatabase:
             )
         """)
         self.connection.commit()
-
     def add_contact(self, username):
         self.cursor.execute("""
             INSERT INTO contacts (username) VALUES (?)
         """, (username,))
         self.connection.commit()
-
     def get_contacts(self):
         self.cursor.execute("""
             SELECT username FROM contacts
         """)
         return self.cursor.fetchall()
-
     def add_message(self, sender, receiver, message):
         self.cursor.execute("""
             INSERT INTO messages (sender, receiver, message) VALUES (?, ?, ?)
         """, (sender, receiver, message))
         self.connection.commit()
-
     def get_messages(self, sender, receiver):
         self.cursor.execute("""
             SELECT sender, receiver, message, timestamp FROM messages
@@ -56,11 +50,8 @@ class ClientDatabase:
             ORDER BY timestamp ASC
         """, (sender, receiver, receiver, sender))
         return self.cursor.fetchall()
-
     def close(self):
         self.connection.close()
-
-
 class ClientVerifier(type):
     def __init__(cls, name, bases, attrs):
         cls._verify_sockets(attrs)
@@ -100,6 +91,45 @@ class Client:
         if self._socket:
             self._socket.close()
             self._socket = None
+
+
+class ChatApplication(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Chat Application")
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+
+        # Отображение списка контактов
+        self.contact_list = QListWidget()
+        self.contact_list.doubleClicked.connect(self.open_chat)
+        layout.addWidget(self.contact_list)
+
+        self.chat_history = QTextEdit()
+        layout.addWidget(self.chat_history)
+
+        self.message_input = QLineEdit()
+        layout.addWidget(self.message_input)
+
+        self.send_button = QPushButton("Send")
+        self.send_button.clicked.connect(self.send_message)
+        layout.addWidget(self.send_button)
+
+        self.setLayout(layout)
+
+    def open_chat(self, item):
+        selected_contact = item.text()
+        self.chat_history.clear()
+        self.chat_history.append(f"Opened chat with {selected_contact}")
+
+    def send_message(self):
+        message = self.message_input.text()
+        self.chat_history.append(f"Sent message: {message}")
+        self.message_input.clear()
+
+
 def main():
     client = Client(PEER_IP, PEER_PORT)
     client.connect()
