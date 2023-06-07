@@ -5,14 +5,26 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from messenger_ui import MessengerApp
+import os
+import hashlib
 from server_admin_ui import ServerAdminApp
+import hmac
 
 
 Base = declarative_base()
-
 HOST = '0.0.0.0'
 PORT = 7777
 clients = []
+
+
+def login_required(f):
+    def decor(*args, **kwargs):
+        if not 'user_id' or 'passw':
+            return ValueError
+        return f(*args, **kwargs)
+    return decor
+
+
 class PortDescriptor:
     def __init__(self, default_port=7777):
         self._default_port = default_port
@@ -84,6 +96,9 @@ class Client(Base):
     id = Column(Integer, primary_key=True)
     login = Column(String)
     info = Column(String)
+    passw = hashlib.md5(Column(String))
+
+
 class ClientHistory(Base):
     __tablename__ = 'client_history'
     id = Column(Integer, primary_key=True)
@@ -95,6 +110,25 @@ class ContactList(Base):
     id = Column(Integer, primary_key=True)
     owner_id = Column(Integer)
     client_id = Column(Integer)
+
+
+@login_required
+def server_authenticate(connection, secret_key):
+    message = os.urandom(32)
+    connection.send(message)
+    hash = hmac.new(secret_key, message)
+    digest = hash.digest()
+    response = connection.recv(len(digest))
+    return hmac.compare_digest(digest, response)
+
+
+def client_authenticate(connection, secret_key):
+    message = connection.recv(32)
+    hash = hmac.new(secret_key, message)
+    digest = hash.digest()
+    connection.send(digest)
+
+
 class Storage:
     def __init__(self, db_path):
         engine = create_engine(f'sqlite://.{db_path}')
@@ -120,44 +154,34 @@ class Storage:
         return self.session.query(ClientHistory).filter_by(client_id=client_id).all()
     def get_contacts_by_owner_id(self, owner_id):
         return self.session.query(ContactList).filter_by(owner_id=owner_id).all()
-
-
 class ContactStorage:
     def __init__(self):
         self.contacts = []
-
     def get_contacts(self, user_login):
         return {
             "response": "202",
             "alert": self.contacts
         }
-
     def add_contact(self, user_id):
         if user_id not in self.contacts:
             self.contacts.append(user_id)
             return {"response": 200}
         else:
             return {"response": 409}
-
     def del_contact(self, user_id):
         if user_id in self.contacts:
             self.contacts.remove(user_id)
             return {"response": 200}
         else:
             return {"response": 404}
-
-
 class MyServer(Server):
     def handle_client(self, client_socket, client_address):
         data = client_socket.recv(1024)
         response = "Received: " + data.decode()
         client_socket.sendall(response.encode())
         client_socket.close()
-
-
 server_app = ServerAdminApp()
 messenger_app = MessengerApp()
 my_server = MyServer(HOST, PORT)
 storage = Storage('db.sqlite3')
-
 my_server.start()
